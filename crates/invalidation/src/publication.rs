@@ -165,4 +165,26 @@ mod tests {
         ));
         coordinator.publish(build.generation, results()).unwrap();
     }
+
+    #[test]
+    fn another_thread_cannot_publish_an_obsolete_build() {
+        use std::sync::{Arc, Barrier};
+        use std::thread;
+        let coordinator = Arc::new(Coordinator::new());
+        let first = coordinator.begin(graph(0), &BTreeSet::new()).unwrap();
+        let barrier = Arc::new(Barrier::new(2));
+        let worker_coordinator = Arc::clone(&coordinator);
+        let worker_barrier = Arc::clone(&barrier);
+        let worker = thread::spawn(move || {
+            worker_barrier.wait();
+            worker_coordinator.publish(first.generation, results())
+        });
+        let second = coordinator.begin(graph(1), &BTreeSet::new()).unwrap();
+        barrier.wait();
+        assert!(matches!(
+            worker.join().unwrap(),
+            Err(Error::StaleGeneration)
+        ));
+        coordinator.publish(second.generation, results()).unwrap();
+    }
 }
