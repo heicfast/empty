@@ -1,0 +1,41 @@
+name: Upstream Blaze smoke
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  upstream-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout pinned upstream source
+        uses: actions/checkout@v4
+        with:
+          repository: indexable-inc/blaze
+          ref: 1bd553f2e3334e17541e4a0cf239a89fe1504d9d
+          path: upstream
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install upstream's pinned toolchain
+        shell: bash
+        run: rustup toolchain install "$(cat upstream/harness/toolchain)" --profile minimal --component rust-src
+      - name: Build upstream binaries
+        working-directory: upstream
+        shell: bash
+        run: cargo +"$(cat harness/toolchain)" build --release --locked -p ra-jit --bins
+      - name: Build smoke harness
+        run: cargo build --release --locked -p build-oracle-smoke
+      - name: Compare behavior on small fixture
+        shell: bash
+        run: |
+          set -o pipefail
+          ./target/release/build-oracle-smoke "$(command -v cargo)" "$GITHUB_WORKSPACE/upstream/target/release/blaze" "$RUNNER_TEMP/oracle-fixture" | tee smoke-results.csv
+      - name: Save smoke timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: upstream-smoke-results
+          path: smoke-results.csv
+          if-no-files-found: ignore
