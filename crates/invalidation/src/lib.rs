@@ -4,6 +4,8 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
 
+pub mod publication;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Node {
     pub fingerprint: [u8; 32],
