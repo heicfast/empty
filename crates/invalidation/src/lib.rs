@@ -269,4 +269,75 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn generated_snapshot_diffs_match_fixed_point_oracle() {
+        let mut state: u64 = 0x93e1_27ab;
+        for _ in 0..1000 {
+            let mut snapshots = Vec::new();
+            for _ in 0..2 {
+                let mut nodes = BTreeMap::new();
+                for i in 0..10 {
+                    state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+                    if state >> 62 == 0 {
+                        continue;
+                    }
+                    let mut dependencies = BTreeSet::new();
+                    for j in 0..i {
+                        let key = format!("n{j:02}");
+                        state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+                        if state >> 62 == 0 && nodes.contains_key(&key) {
+                            dependencies.insert(key);
+                        }
+                    }
+                    nodes.insert(
+                        format!("n{i:02}"),
+                        Node {
+                            fingerprint: [(state >> 60) as u8; 32],
+                            dependencies,
+                        },
+                    );
+                }
+                snapshots.push(nodes);
+            }
+            let old_nodes = &snapshots[0];
+            let new_nodes = &snapshots[1];
+            let old = Graph::new(old_nodes.clone()).unwrap();
+            let new = Graph::new(new_nodes.clone()).unwrap();
+            let mut expected: BTreeSet<String> = old_nodes
+                .keys()
+                .chain(new_nodes.keys())
+                .filter(|name| old_nodes.get(*name) != new_nodes.get(*name))
+                .cloned()
+                .collect();
+            loop {
+                let before = expected.len();
+                for nodes in [old_nodes, new_nodes] {
+                    for (name, node) in nodes {
+                        if node.dependencies.iter().any(|dep| expected.contains(dep)) {
+                            expected.insert(name.clone());
+                        }
+                    }
+                }
+                if before == expected.len() {
+                    break;
+                }
+            }
+            let result = plan(&old, &new, &BTreeSet::new()).unwrap();
+            let expected_rebuild: BTreeSet<_> = expected
+                .into_iter()
+                .filter(|name| new_nodes.contains_key(name))
+                .collect();
+            assert_eq!(
+                result.rebuild.iter().cloned().collect::<BTreeSet<_>>(),
+                expected_rebuild
+            );
+            let expected_removed = old_nodes
+                .keys()
+                .filter(|name| !new_nodes.contains_key(*name))
+                .cloned()
+                .collect();
+            assert_eq!(result.removed, expected_removed);
+        }
+    }
 }
